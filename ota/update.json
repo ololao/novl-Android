@@ -1,0 +1,7 @@
+{
+  "version_code": 1,
+  "version_name": "0.1.0",
+  "apk_url": "https://codeberg.org/ooopev/novl-android/releases/download/v0.1/novl-v0.1.0.apk",
+  "sha256": "f3dc97f40c06a3237ef2f1c8eed5b43ddec0dbd3c70fb764ef89b16b37e72843",
+  "changelog": "Начальный релиз NOVL Android v0.1.0: L3 TUN tun2proxy, TLS-Chameleon, Split Handshake anti-DPI, UDP-over-TCP."
+}
