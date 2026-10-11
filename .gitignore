@@ -21,3 +21,5 @@ maint/
 .aider*
 .kotlin/
 *.png
+*.conf
+!tunnel/src/test/resources/*.conf
