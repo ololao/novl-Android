@@ -11,10 +11,15 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -32,40 +37,81 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
-
       - name: Build Release APK
-        run: ./gradlew :ui:assembleRelease
+        run: ./gradlew :ui:assembleRelease --stacktrace
 
-      - name: Prepare APK Artifact
+      - name: Prepare and sign APK Artifact
+        id: prepare
+        env:
+          B64_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: |
+          set -euo pipefail
           mkdir -p build-artifacts
-          APK_PATH=$(find ui/build/outputs/apk/release -name "*.apk" | head -n 1)
+
+          APK_PATH=$(find ui/build/outputs/apk/release -name "*.apk" | sort | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "::error::No APK file found in ui/build/outputs/apk/release"
             exit 1
           fi
           echo "Found APK at: $APK_PATH"
-          cp "$APK_PATH" build-artifacts/novl-v0.1.0.apk
-          sha256sum build-artifacts/novl-v0.1.0.apk > build-artifacts/novl-v0.1.0.apk.sha256
+
+          VERSION_NAME=$(grep -E '^wireguardVersionName=' gradle.properties | head -n 1 | cut -d= -f2 | tr -d '[:space:]')
+          if [ -z "$VERSION_NAME" ]; then
+            echo "::error::wireguardVersionName not found in gradle.properties"
+            exit 1
+          fi
+          OUT="build-artifacts/novl-v${VERSION_NAME}.apk"
+
+          if [[ "$APK_PATH" == *unsigned* ]]; then
+            if [ -n "$B64_KEYSTORE" ]; then
+              APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+              if [ -z "$APKSIGNER" ]; then
+                echo "::error::apksigner not found in ANDROID_HOME build-tools"
+                exit 1
+              fi
+              printf '%s' "$B64_KEYSTORE" | base64 -d > signing.keystore
+              "$APKSIGNER" sign \
+                --ks signing.keystore \
+                --ks-key-alias "$KEY_ALIAS" \
+                --ks-pass "pass:$KEYSTORE_PASS" \
+                --key-pass "pass:$KEY_PASS" \
+                --out "$OUT" "$APK_PATH"
+              rm -f signing.keystore
+              "$APKSIGNER" verify --print-certs "$OUT"
+              echo "APK signed and verified."
+              echo "signed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::Signing secrets are not configured. The APK is UNSIGNED and will NOT be published to a GitHub Release."
+              cp "$APK_PATH" "$OUT"
+              echo "signed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            cp "$APK_PATH" "$OUT"
+            echo "APK was already signed by the Gradle build."
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          sha256sum "$OUT" > "${OUT}.sha256"
           echo "Built APK SHA256:"
-          cat build-artifacts/novl-v0.1.0.apk.sha256
+          cat "${OUT}.sha256"
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: novl-android-apk
-          path: build-artifacts/novl-v0.1.0.apk
+          path: |
+            build-artifacts/*.apk
+            build-artifacts/*.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
       - name: Publish to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && steps.prepare.outputs.signed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build-artifacts/novl-v0.1.0.apk
-            build-artifacts/novl-v0.1.0.apk.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            build-artifacts/*.apk
+            build-artifacts/*.apk.sha256
