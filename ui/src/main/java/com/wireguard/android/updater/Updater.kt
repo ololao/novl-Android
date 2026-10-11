@@ -44,8 +44,8 @@ import kotlin.time.Duration.Companion.seconds
 
 object Updater {
     private const val TAG = "Novl/Updater"
-    private const val DEFAULT_UPDATE_URL = "https://codeberg.org/ooopev/novl-android/raw/branch/main/ota/update.json"
-    private const val RELEASES_API_URL = "https://codeberg.org/api/v1/repos/ooopev/novl-android/releases/latest"
+    private const val DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/ololao/novl-Android/main/ota/update.json"
+    private const val RELEASES_API_URL = "https://api.github.com/repos/ololao/novl-Android/releases/latest"
     private val CURRENT_VERSION by lazy { Version(BuildConfig.VERSION_NAME) }
 
     private val updaterScope = CoroutineScope(Job() + Dispatchers.IO)
@@ -216,7 +216,7 @@ object Updater {
         if (!custom.isNullOrBlank()) {
             return listOf(custom)
         }
-        return listOf(DEFAULT_UPDATE_URL, RELEASES_API_URL)
+        return listOf(RELEASES_API_URL, DEFAULT_UPDATE_URL)
     }
 
     private suspend fun checkForUpdates(): Update? {
@@ -326,11 +326,37 @@ object Updater {
             }
 
             emitProgress(Progress.Downloading(0UL, 0UL), true)
-            val connection = URL(update.apkUrl).openConnection() as HttpURLConnection
+            var downloadUrl = update.apkUrl
+            var connection = URL(downloadUrl).openConnection() as HttpURLConnection
             connection.setRequestProperty("User-Agent", Application.USER_AGENT)
             connection.connectTimeout = 15000
             connection.readTimeout = 60000
+            connection.instanceFollowRedirects = true
             connection.connect()
+
+            var responseCode = connection.responseCode
+            var redirects = 0
+            while ((responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                    responseCode == HttpURLConnection.HTTP_SEE_OTHER ||
+                    responseCode == 307 || responseCode == 308) && redirects < 5) {
+                val newUrl = connection.getHeaderField("Location") ?: break
+                connection.disconnect()
+                downloadUrl = if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
+                    newUrl
+                } else {
+                    URL(URL(downloadUrl), newUrl).toString()
+                }
+                connection = URL(downloadUrl).openConnection() as HttpURLConnection
+                connection.setRequestProperty("User-Agent", Application.USER_AGENT)
+                connection.connectTimeout = 15000
+                connection.readTimeout = 60000
+                connection.instanceFollowRedirects = true
+                connection.connect()
+                responseCode = connection.responseCode
+                redirects++
+            }
+
             if (connection.responseCode != HttpURLConnection.HTTP_OK)
                 throw IOException("Update download failed: HTTP ${connection.responseCode} ${connection.responseMessage}")
 

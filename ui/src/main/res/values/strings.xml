@@ -258,8 +258,8 @@
     <string name="updater_error_toast">Failed to check updates: %s</string>
     <string name="custom_update_url_title">Update Server (OTA URL)</string>
     <string name="custom_update_url_dialog_title">Update Server URL</string>
-    <string name="custom_update_url_dialog_message">Enter custom update.json or releases URL. Leave empty to use Codeberg Releases by default.</string>
-    <string name="custom_update_url_summary_default">Default (Codeberg Releases)</string>
+    <string name="custom_update_url_dialog_message">Enter custom update.json or releases URL. Leave empty to use GitHub Releases by default.</string>
+    <string name="custom_update_url_summary_default">Default (GitHub Releases)</string>
     <string name="vpn_not_authorized_error">VPN service not authorized by user</string>
     <string name="vpn_start_error">Unable to start Android VPN service</string>
     <string name="zip_export_error">Unable to export tunnels: %s</string>

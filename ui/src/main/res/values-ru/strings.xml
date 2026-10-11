@@ -280,8 +280,8 @@
     <string name="updater_error_toast">Ошибка проверки обновлений: %s</string>
     <string name="custom_update_url_title">Сервер обновлений (OTA URL)</string>
     <string name="custom_update_url_dialog_title">URL сервера обновлений</string>
-    <string name="custom_update_url_dialog_message">Укажите собственный URL для update.json или релизов. Оставьте пустым для использования Codeberg Releases по умолчанию.</string>
-    <string name="custom_update_url_summary_default">По умолчанию (Codeberg Releases)</string>
+    <string name="custom_update_url_dialog_message">Укажите собственный URL для update.json или релизов. Оставьте пустым для использования GitHub Releases по умолчанию.</string>
+    <string name="custom_update_url_summary_default">По умолчанию (GitHub Releases)</string>
     <string name="vpn_not_authorized_error">Сервис VPN не авторизован пользователем</string>
     <string name="vpn_start_error">Не удалось запустить службу Android VPN</string>
     <string name="zip_export_error">Не удалось экспортировать туннели: %s</string>
