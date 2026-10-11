@@ -41,26 +41,29 @@ class QrCodeFromFileScanner(
 
     private fun doScan(data: Uri): Result {
         Log.d(TAG, "Starting to scan an image: $data")
-        contentResolver.openInputStream(data).use { inputStream ->
+        var firstException: Throwable? = null
+        for (i in arrayOf(1, 2, 4, 8, 16, 32, 64, 128)) {
             var bitmap: Bitmap? = null
-            var firstException: Throwable? = null
-            for (i in arrayOf(1, 2, 4, 8, 16, 32, 64, 128)) {
-                try {
-                    val options = BitmapFactory.Options()
-                    options.inSampleSize = i
-                    bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+            try {
+                val options = BitmapFactory.Options()
+                options.inSampleSize = i
+                // Open a fresh stream for every attempt: the previous decode may have consumed
+                // the stream, so retrying with the same stream would read only the remainder (F20).
+                val decoded = contentResolver.openInputStream(data).use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream, null, options)
                         ?: throw IllegalArgumentException("Can't decode stream for bitmap")
-                    return scanBitmapForResult(bitmap)
-                } catch (e: Throwable) {
-                    bitmap?.recycle()
-                    System.gc()
-                    Log.e(TAG, "Original image scan at scale factor $i finished with error: $e")
-                    if (firstException == null)
-                        firstException = e
                 }
+                bitmap = decoded
+                return scanBitmapForResult(decoded)
+            } catch (e: Throwable) {
+                bitmap?.recycle()
+                System.gc()
+                Log.e(TAG, "Original image scan at scale factor $i finished with error: $e")
+                if (firstException == null)
+                    firstException = e
             }
-            throw Exception(firstException)
         }
+        throw Exception(firstException)
     }
 
     /**

@@ -14,8 +14,11 @@ import androidx.databinding.ObservableList
 import com.wireguard.android.BR
 import com.wireguard.config.Attribute
 import com.wireguard.config.BadConfigException
+import com.wireguard.config.InetAddresses
+import com.wireguard.config.ParseException
 import com.wireguard.config.Peer
 import java.lang.ref.WeakReference
+import java.net.Inet4Address
 
 class PeerProxy : BaseObservable, Parcelable {
     private val dnsRoutes: MutableList<String?> = ArrayList()
@@ -169,7 +172,15 @@ class PeerProxy : BaseObservable, Parcelable {
     }
 
     private fun setInterfaceDns(dnsServers: CharSequence) {
-        val newDnsRoutes = Attribute.split(dnsServers).filter { !it.contains(":") }.map { "$it/32" }
+        // Only numeric IPv4 DNS servers become /32 routes; search domains such as
+        // "office.example" must never be turned into a bogus route (F08).
+        val newDnsRoutes = Attribute.split(dnsServers).mapNotNull { server ->
+            try {
+                if (InetAddresses.parse(server) is Inet4Address) "$server/32" else null
+            } catch (_: ParseException) {
+                null
+            }
+        }
         if (allowedIpsState == AllowedIpsState.CONTAINS_IPV4_PUBLIC_NETWORKS) {
             val input = getAllowedIpsSet()
             // Yes, this is quadratic in the number of DNS servers, but most users have 1 or 2.

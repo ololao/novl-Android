@@ -39,8 +39,13 @@ class ZipExporterPreference(context: Context, attrs: AttributeSet?) : Preference
             val tunnels = Application.getTunnelManager().getTunnels()
             try {
                 exportedFilePath = withContext(Dispatchers.IO) {
-                    val configs = tunnels.map { async(SupervisorJob()) { it.getConfigAsync() } }.awaitAll()
-                    if (configs.isEmpty()) {
+                    // Capture (name, config) pairs from a single snapshot so that a rename or
+                    // deletion during export cannot pair one tunnel's name with another's config (F12).
+                    val entries = tunnels.map { tunnel ->
+                        val name = tunnel.name
+                        async(SupervisorJob()) { name to tunnel.getConfigAsync() }
+                    }.awaitAll()
+                    if (entries.isEmpty()) {
                         throw IllegalArgumentException(context.getString(R.string.no_tunnels_error))
                     }
                     val outputFile = downloadsFileSaver.save("wireguard-export.zip", "application/zip", true)
@@ -52,12 +57,14 @@ class ZipExporterPreference(context: Context, attrs: AttributeSet?) : Preference
                     }
                     try {
                         ZipOutputStream(outputFile.outputStream).use { zip ->
-                            for (i in configs.indices) {
-                                zip.putNextEntry(ZipEntry(tunnels[i].name + ".conf"))
-                                zip.write(configs[i].toWgQuickString().toByteArray(StandardCharsets.UTF_8))
+                            for ((name, config) in entries) {
+                                zip.putNextEntry(ZipEntry(name + ".conf"))
+                                zip.write(config.toWgQuickString().toByteArray(StandardCharsets.UTF_8))
                             }
                             zip.closeEntry()
                         }
+                        // Replace any previous backup only after a fully successful write (F11).
+                        outputFile.commit()
                     } catch (e: Throwable) {
                         outputFile.delete()
                         throw e

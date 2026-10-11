@@ -67,10 +67,10 @@ object Updater {
 
     sealed class Progress {
         object Complete : Progress()
-        class Available(val version: String) : Progress() {
+        class Available(val version: String, val versionId: String) : Progress() {
             fun update() {
                 applicationScope.launch {
-                    UserKnobs.setUpdaterNewerVersionConsented(version)
+                    UserKnobs.setUpdaterNewerVersionConsented(versionId)
                 }
             }
         }
@@ -191,6 +191,26 @@ object Updater {
         return update.version > CURRENT_VERSION
     }
 
+    /**
+     * Encodes the full update identifier (version name plus version code) so that a release with a
+     * higher version code but an unchanged version name is still detected as newer (F14).
+     */
+    private fun encodeVersion(name: String, code: Int): String =
+        if (code > 0) "$name#$code" else name
+
+    private fun versionDisplayName(id: String): String = id.substringBefore('#')
+
+    /** Whether the stored update identifier is newer than the currently installed build. */
+    private fun isStoredNewer(id: String): Boolean {
+        val name = id.substringBefore('#')
+        val code = id.substringAfter('#', "").toIntOrNull() ?: 0
+        if (code > 0 && BuildConfig.VERSION_CODE > 0) {
+            if (code > BuildConfig.VERSION_CODE) return true
+            if (code < BuildConfig.VERSION_CODE) return false
+        }
+        return Version(name) > CURRENT_VERSION
+    }
+
     private suspend fun getUpdateUrls(): List<String> {
         val custom = UserKnobs.customUpdateUrl.firstOrNull()?.trim()
         if (!custom.isNullOrBlank()) {
@@ -280,6 +300,7 @@ object Updater {
     private suspend fun downloadAndUpdate() = withContext(Dispatchers.IO) {
         val context = Application.get().applicationContext
         val receiver = InstallReceiver()
+        var handedOff = false
 
         val pendingIntent = withContext(Dispatchers.Main) {
             ContextCompat.registerReceiver(
@@ -327,7 +348,6 @@ object Updater {
 
             val sessionId = installer.createSession(params)
             val session = installer.openSession(sessionId)
-            var sessionFailure = true
             try {
                 val installDest = session.openWrite(receiver.sessionId, 0, -1)
 
@@ -356,22 +376,22 @@ object Updater {
                     val actualHex = calculatedHash.joinToString("") { "%02x".format(it) }
                     throw SecurityException("Hash mismatch! Calculated: $actualHex")
                 }
-                sessionFailure = false
+                session.commit(pendingIntent.intentSender)
+                handedOff = true
             } finally {
-                if (sessionFailure) {
+                // On any failure before a successful commit, abandon the install session so it
+                // cannot linger (F17).
+                if (!handedOff) {
                     try { session.abandon() } catch (_: Throwable) {}
-                    try { session.close() } catch (_: Throwable) {}
                 }
+                try { session.close() } catch (_: Throwable) {}
             }
-
-            session.commit(pendingIntent.intentSender)
-            session.close()
-        } catch (t: Throwable) {
-            try {
-                context.unregisterReceiver(receiver)
-            } catch (_: Throwable) {
+        } finally {
+            // The receiver is only kept registered after a successful commit, when the installer
+            // will deliver the result. All other exit paths must release it (F17).
+            if (!handedOff) {
+                try { context.unregisterReceiver(receiver) } catch (_: Throwable) {}
             }
-            throw t
         }
     }
 
@@ -460,7 +480,7 @@ object Updater {
                     val update = checkForUpdates()
                     if (update != null && isNewer(update)) {
                         Log.i(TAG, "Update available: ${update.version} (versionCode=${update.versionCode})")
-                        UserKnobs.setUpdaterNewerVersionSeen(update.version.toString())
+                        UserKnobs.setUpdaterNewerVersionSeen(encodeVersion(update.version.toString(), update.versionCode))
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "Background update check failed: ${e.message}")
@@ -473,15 +493,15 @@ object Updater {
         UserKnobs.updaterNewerVersionSeen.onEach { ver ->
             if (
                 ver != null &&
-                Version(ver) > CURRENT_VERSION &&
-                UserKnobs.updaterNewerVersionConsented.firstOrNull()?.let { Version(it) > CURRENT_VERSION } != true
+                isStoredNewer(ver) &&
+                UserKnobs.updaterNewerVersionConsented.firstOrNull()?.let { isStoredNewer(it) } != true
             ) {
-                emitProgress(Progress.Available(ver))
+                emitProgress(Progress.Available(versionDisplayName(ver), ver))
             }
         }.launchIn(applicationScope)
 
         UserKnobs.updaterNewerVersionConsented.onEach { ver ->
-            if (ver != null && Version(ver) > CURRENT_VERSION) {
+            if (ver != null && isStoredNewer(ver)) {
                 updaterScope.launch {
                     downloadAndUpdateWrapErrors()
                 }
@@ -493,9 +513,10 @@ object Updater {
         try {
             val update = checkForUpdates()
             if (update != null && isNewer(update)) {
-                UserKnobs.setUpdaterNewerVersionSeen(update.version.toString())
+                val versionId = encodeVersion(update.version.toString(), update.versionCode)
+                UserKnobs.setUpdaterNewerVersionSeen(versionId)
                 UserKnobs.setUpdaterNewerVersionConsented(null)
-                emitProgress(Progress.Available(update.version.toString()))
+                emitProgress(Progress.Available(update.version.toString(), versionId))
                 CheckResult.Available(update.version.toString(), update.changelog)
             } else {
                 emitProgress(Progress.Complete)

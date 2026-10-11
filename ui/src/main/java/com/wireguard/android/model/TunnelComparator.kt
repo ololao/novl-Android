@@ -56,6 +56,8 @@ object TunnelComparator : Comparator<String> {
             if (c != 0)
                 return c
         }
-        return 1
+        // Token sequences are equal after normalization (e.g. "vpn1" vs "VPN1"); break the tie by
+        // comparing the original strings so the comparator is consistent in both directions.
+        return a.compareTo(b)
     }
 }

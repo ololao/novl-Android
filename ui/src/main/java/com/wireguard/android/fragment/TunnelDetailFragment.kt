@@ -21,7 +21,9 @@ import com.wireguard.android.databinding.TunnelDetailFragmentBinding
 import com.wireguard.android.databinding.TunnelDetailPeerBinding
 import com.wireguard.android.model.ObservableTunnel
 import com.wireguard.android.util.QuantityFormatter
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -30,7 +32,7 @@ import kotlinx.coroutines.launch
 class TunnelDetailFragment : BaseFragment(), MenuProvider {
     private var binding: TunnelDetailFragmentBinding? = null
     private var lastState = Tunnel.State.TOGGLE
-    private var timerActive = true
+    private var statsJob: Job? = null
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
         return false
@@ -62,9 +64,11 @@ class TunnelDetailFragment : BaseFragment(), MenuProvider {
 
     override fun onResume() {
         super.onResume()
-        timerActive = true
-        lifecycleScope.launch {
-            while (timerActive) {
+        // A single cancelable poll loop so rapid leave/return cannot accumulate
+        // multiple overlapping loops (R02).
+        statsJob?.cancel()
+        statsJob = lifecycleScope.launch {
+            while (isActive) {
                 updateStats()
                 delay(1000)
             }
@@ -77,11 +81,17 @@ class TunnelDetailFragment : BaseFragment(), MenuProvider {
         if (newTunnel == null) {
             binding.config = null
         } else {
+            val requested = newTunnel
             lifecycleScope.launch {
                 try {
-                    binding.config = newTunnel.getConfigAsync()
+                    val config = requested.getConfigAsync()
+                    // Only apply the result if the user has not since switched to another
+                    // tunnel, so a late load for A cannot overwrite B (F24).
+                    if (binding.tunnel === requested)
+                        binding.config = config
                 } catch (_: Throwable) {
-                    binding.config = null
+                    if (binding.tunnel === requested)
+                        binding.config = null
                 }
             }
         }
@@ -90,7 +100,8 @@ class TunnelDetailFragment : BaseFragment(), MenuProvider {
     }
 
     override fun onStop() {
-        timerActive = false
+        statsJob?.cancel()
+        statsJob = null
         super.onStop()
     }
 

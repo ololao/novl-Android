@@ -109,7 +109,9 @@ public final class Curve25519 {
                 for (int index = 0; index < 32; ++index) {
                     final int bit = (index * 8) % 26;
                     final int word = (index * 8) / 26;
-                    final int value = publicKey[index] & 0xFF;
+                    // RFC 7748 requires masking the most-significant bit of the final
+                    // byte of the u-coordinate when decoding an incoming point.
+                    final int value = publicKey[index] & (index == 31 ? 0x7F : 0xFF);
                     if (bit <= (26 - 8)) {
                         state.x_1[word] |= value << bit;
                     } else {

@@ -21,16 +21,20 @@ class KeyInputFilter : InputFilter {
     ): CharSequence? {
         var replacement: SpannableStringBuilder? = null
         var rIndex = 0
-        val dLength = dest.length
+        val replacedLength = dEnd - dStart
+        val resultingLength = dest.length - replacedLength
         for (sIndex in sStart until sEnd) {
             val c = source[sIndex]
-            val dIndex = dStart + (sIndex - sStart)
-            // Restrict characters to the base64 character set.
-            // Ensure adding this character does not push the length over the limit.
-            if ((dIndex + 1 < Key.Format.BASE64.length && isAllowed(c) ||
-                        dIndex + 1 == Key.Format.BASE64.length && c == '=') &&
-                dLength + (sIndex - sStart) < Key.Format.BASE64.length
-            ) {
+            val pos = dStart + rIndex
+            val isLast = pos + 1 == Key.Format.BASE64.length
+            // Restrict characters to the base64 character set, allowing '=' only in the final
+            // position, and account for the length of the text being replaced.
+            val allowed = if (isLast) {
+                c == '='
+            } else {
+                pos + 1 < Key.Format.BASE64.length && isAllowed(c)
+            }
+            if (allowed && resultingLength + rIndex < Key.Format.BASE64.length) {
                 ++rIndex
             } else {
                 if (replacement == null) replacement = SpannableStringBuilder(source, sStart, sEnd)

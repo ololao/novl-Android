@@ -51,6 +51,7 @@ class TunnelListFragment : BaseFragment() {
     private var actionMode: ActionMode? = null
     private var backPressedCallback: OnBackPressedCallback? = null
     private var binding: TunnelListFragmentBinding? = null
+    private var pendingCheckedNames: List<String>? = null
     private val tunnelFileImportResultLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { data ->
         if (data == null) return@registerForActivityResult
         val activity = activity ?: return@registerForActivityResult
@@ -86,10 +87,9 @@ class TunnelListFragment : BaseFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         if (savedInstanceState != null) {
-            val checkedItems = savedInstanceState.getIntegerArrayList(CHECKED_ITEMS)
-            if (checkedItems != null) {
-                for (i in checkedItems) actionModeListener.setItemChecked(i, true)
-            }
+            val checkedNames = savedInstanceState.getStringArrayList(CHECKED_ITEMS)
+            if (checkedNames != null)
+                pendingCheckedNames = checkedNames
         }
     }
 
@@ -142,7 +142,7 @@ class TunnelListFragment : BaseFragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putIntegerArrayList(CHECKED_ITEMS, actionModeListener.getCheckedItems())
+        outState.putStringArrayList(CHECKED_ITEMS, ArrayList(actionModeListener.checkedTunnels.map { it.name }))
     }
 
     override fun onSelectedTunnelChanged(oldTunnel: ObservableTunnel?, newTunnel: ObservableTunnel?) {
@@ -171,7 +171,15 @@ class TunnelListFragment : BaseFragment() {
         super.onViewStateRestored(savedInstanceState)
         binding ?: return
         binding!!.fragment = this
-        lifecycleScope.launch { binding!!.tunnels = Application.getTunnelManager().getTunnels() }
+        lifecycleScope.launch {
+            val tunnels = Application.getTunnelManager().getTunnels()
+            binding!!.tunnels = tunnels
+            pendingCheckedNames?.let { names ->
+                for (name in names)
+                    tunnels[name]?.let { actionModeListener.setTunnelChecked(it, true) }
+                pendingCheckedNames = null
+            }
+        }
         binding!!.rowConfigurationHandler = object : RowConfigurationHandler<TunnelListItemBinding, ObservableTunnel> {
             override fun onConfigureRow(binding: TunnelListItemBinding, item: ObservableTunnel, position: Int) {
                 binding.fragment = this@TunnelListFragment
@@ -179,15 +187,15 @@ class TunnelListFragment : BaseFragment() {
                     if (actionMode == null) {
                         selectedTunnel = item
                     } else {
-                        actionModeListener.toggleItemChecked(position)
+                        actionModeListener.toggleTunnelChecked(item)
                     }
                 }
                 binding.root.setOnLongClickListener {
-                    actionModeListener.toggleItemChecked(position)
+                    actionModeListener.toggleTunnelChecked(item)
                     true
                 }
                 if (actionMode != null)
-                    (binding.root as MultiselectableRelativeLayout).setMultiSelected(actionModeListener.checkedItems.contains(position))
+                    (binding.root as MultiselectableRelativeLayout).setMultiSelected(actionModeListener.checkedTunnels.contains(item))
                 else
                     (binding.root as MultiselectableRelativeLayout).setSingleSelected(selectedTunnel == item)
             }
@@ -209,18 +217,16 @@ class TunnelListFragment : BaseFragment() {
     }
 
     private inner class ActionModeListener : ActionMode.Callback {
-        val checkedItems: MutableCollection<Int> = HashSet()
+        // Track tunnels by object identity, which is stable across inserts and re-sorts, instead
+        // of positions that can end up pointing at a different tunnel (F22).
+        val checkedTunnels: MutableCollection<ObservableTunnel> = HashSet()
         private var resources: Resources? = null
-
-        fun getCheckedItems(): ArrayList<Int> {
-            return ArrayList(checkedItems)
-        }
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
             return when (item.itemId) {
                 R.id.menu_action_delete -> {
                     val activity = activity ?: return true
-                    val copyCheckedItems = HashSet(checkedItems)
+                    val copyCheckedTunnels = HashSet(checkedTunnels)
                     binding?.createFab?.apply {
                         visibility = View.VISIBLE
                         scaleX = 1f
@@ -228,16 +234,13 @@ class TunnelListFragment : BaseFragment() {
                     }
                     activity.lifecycleScope.launch {
                         try {
-                            val tunnels = Application.getTunnelManager().getTunnels()
-                            val tunnelsToDelete = ArrayList<ObservableTunnel>()
-                            for (position in copyCheckedItems) tunnelsToDelete.add(tunnels[position])
-                            val futures = tunnelsToDelete.map { async(SupervisorJob()) { it.deleteAsync() } }
+                            val futures = copyCheckedTunnels.map { async(SupervisorJob()) { it.deleteAsync() } }
                             onTunnelDeletionFinished(futures.awaitAll().size, null)
                         } catch (e: Throwable) {
                             onTunnelDeletionFinished(0, e)
                         }
                     }
-                    checkedItems.clear()
+                    checkedTunnels.clear()
                     mode.finish()
                     true
                 }
@@ -245,8 +248,8 @@ class TunnelListFragment : BaseFragment() {
                 R.id.menu_action_select_all -> {
                     lifecycleScope.launch {
                         val tunnels = Application.getTunnelManager().getTunnels()
-                        for (i in 0 until tunnels.size) {
-                            setItemChecked(i, true)
+                        for (tunnel in tunnels) {
+                            setTunnelChecked(tunnel, true)
                         }
                     }
                     true
@@ -273,7 +276,7 @@ class TunnelListFragment : BaseFragment() {
             backPressedCallback?.isEnabled = false
             resources = null
             animateFab(binding?.createFab, true)
-            checkedItems.clear()
+            checkedTunnels.clear()
             binding?.tunnelList?.adapter?.notifyDataSetChanged()
         }
 
@@ -282,31 +285,32 @@ class TunnelListFragment : BaseFragment() {
             return false
         }
 
-        fun setItemChecked(position: Int, checked: Boolean) {
+        fun setTunnelChecked(tunnel: ObservableTunnel, checked: Boolean) {
             if (checked) {
-                checkedItems.add(position)
+                checkedTunnels.add(tunnel)
             } else {
-                checkedItems.remove(position)
+                checkedTunnels.remove(tunnel)
             }
             val adapter = if (binding == null) null else binding!!.tunnelList.adapter
-            if (actionMode == null && !checkedItems.isEmpty() && activity != null) {
+            if (actionMode == null && !checkedTunnels.isEmpty() && activity != null) {
                 (activity as AppCompatActivity).startSupportActionMode(this)
-            } else if (actionMode != null && checkedItems.isEmpty()) {
+            } else if (actionMode != null && checkedTunnels.isEmpty()) {
                 actionMode!!.finish()
             }
-            adapter?.notifyItemChanged(position)
+            val position = binding?.tunnels?.indexOf(tunnel) ?: -1
+            if (position >= 0) adapter?.notifyItemChanged(position)
             updateTitle(actionMode)
         }
 
-        fun toggleItemChecked(position: Int) {
-            setItemChecked(position, !checkedItems.contains(position))
+        fun toggleTunnelChecked(tunnel: ObservableTunnel) {
+            setTunnelChecked(tunnel, !checkedTunnels.contains(tunnel))
         }
 
         private fun updateTitle(mode: ActionMode?) {
             if (mode == null) {
                 return
             }
-            val count = checkedItems.size
+            val count = checkedTunnels.size
             if (count == 0) {
                 mode.title = ""
             } else {

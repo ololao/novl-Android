@@ -41,9 +41,8 @@ import java.lang.ref.WeakReference
 import java.util.Locale
 
 class Application : android.app.Application() {
-    private val futureBackend = CompletableDeferred<Backend>()
+    private var futureBackend = CompletableDeferred<Backend>()
     private val coroutineScope = CoroutineScope(Job() + Dispatchers.Main.immediate)
-    private var backend: Backend? = null
     private lateinit var rootShell: RootShell
     private lateinit var preferencesDataStore: DataStore<Preferences>
     private lateinit var toolsInstaller: ToolsInstaller
@@ -65,6 +64,28 @@ class Application : android.app.Application() {
         val backend = GoBackend(applicationContext)
         GoBackend.setAlwaysOnCallback { get().applicationScope.launch { get().tunnelManager.restoreState(true) } }
         return backend
+    }
+
+    /**
+     * Loads the backend on a background thread. On failure the pending [futureBackend] is completed
+     * exceptionally and a fresh deferred is installed, so callers awaiting [getBackend] never hang
+     * forever and can retry.
+     */
+    private fun loadBackend() {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val loaded = determineBackend()
+                if (!futureBackend.isCompleted)
+                    futureBackend.complete(loaded)
+            } catch (e: Throwable) {
+                Log.e(TAG, Log.getStackTraceString(e))
+                if (!futureBackend.isCompleted) {
+                    val failed = futureBackend
+                    futureBackend = CompletableDeferred()
+                    failed.completeExceptionally(e)
+                }
+            }
+        }
     }
 
     override fun onCreate() {
@@ -93,14 +114,7 @@ class Application : android.app.Application() {
         }
         tunnelManager = TunnelManager(FileConfigStore(applicationContext))
         tunnelManager.onCreate()
-        coroutineScope.launch(Dispatchers.IO) {
-            try {
-                backend = determineBackend()
-                futureBackend.complete(backend!!)
-            } catch (e: Throwable) {
-                Log.e(TAG, Log.getStackTraceString(e))
-            }
-        }
+        loadBackend()
         Updater.monitorForUpdates()
 
         if (BuildConfig.DEBUG) {
@@ -123,7 +137,17 @@ class Application : android.app.Application() {
             return weakSelf.get()!!
         }
 
-        suspend fun getBackend() = get().futureBackend.await()
+        suspend fun getBackend(): Backend {
+            val app = get()
+            return try {
+                app.futureBackend.await()
+            } catch (e: Throwable) {
+                // Retry once: a transient startup failure (e.g. native library load) must not
+                // permanently hang callers.
+                app.loadBackend()
+                app.futureBackend.await()
+            }
+        }
 
         fun getRootShell() = get().rootShell
 

@@ -21,14 +21,15 @@ class NameInputFilter : InputFilter {
     ): CharSequence? {
         var replacement: SpannableStringBuilder? = null
         var rIndex = 0
-        val dLength = dest.length
+        val replacedLength = dEnd - dStart
+        val resultingLength = dest.length - replacedLength
         for (sIndex in sStart until sEnd) {
             val c = source[sIndex]
-            val dIndex = dStart + (sIndex - sStart)
-            // Restrict characters to those valid in interfaces.
-            // Ensure adding this character does not push the length over the limit.
-            if (dIndex < Tunnel.NAME_MAX_LENGTH && isAllowed(c) &&
-                dLength + (sIndex - sStart) < Tunnel.NAME_MAX_LENGTH
+            val pos = dStart + rIndex
+            // Restrict characters to those valid in interfaces, and account for the length of the
+            // text being replaced so that replacing a full name still accepts new content.
+            if (pos < Tunnel.NAME_MAX_LENGTH && isAllowed(c) &&
+                resultingLength + rIndex < Tunnel.NAME_MAX_LENGTH
             ) {
                 ++rIndex
             } else {

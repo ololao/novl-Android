@@ -63,8 +63,11 @@ object BindingAdapters {
             ListenerUtil.trackListener<Any?>(view, null, R.id.item_change_listener)
         }
         // Avoid adding a listener when there is no new list or layout.
-        if (newList == null || newLayoutId == 0)
+        if (newList == null || newLayoutId == 0) {
+            // Clear any previously-bound content when the list is removed.
+            listener?.setList(null)
             return
+        }
         if (listener == null) {
             listener = ItemChangeListener(view, newLayoutId, newFragment)
             ListenerUtil.trackListener(view, listener, R.id.item_change_listener)
@@ -116,8 +119,11 @@ object BindingAdapters {
             adapter = null
         }
         // Avoid setting an adapter when there is no new list or layout.
-        if (newList == null || newLayoutId == 0)
+        if (newList == null || newLayoutId == 0) {
+            // Clear any previously-bound data when the list is removed.
+            adapter?.setList(null)
             return
+        }
         if (adapter == null) {
             adapter = ObservableKeyedRecyclerViewAdapter(view.context, newLayoutId, newList)
             view.adapter = adapter

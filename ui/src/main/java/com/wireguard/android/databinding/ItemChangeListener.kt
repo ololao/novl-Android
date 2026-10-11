@@ -70,7 +70,7 @@ internal class ItemChangeListener<T>(private val container: ViewGroup, private v
                 for (i in positionStart until positionStart + itemCount) {
                     val child = listener.container.getChildAt(i)
                     listener.container.removeViewAt(i)
-                    listener.container.addView(listener.getView(i, child))
+                    listener.container.addView(listener.getView(i, child), i)
                 }
             } else {
                 sender.removeOnListChangedCallback(this)
@@ -84,7 +84,7 @@ internal class ItemChangeListener<T>(private val container: ViewGroup, private v
             val listener = weakListener.get()
             if (listener != null) {
                 for (i in positionStart until positionStart + itemCount)
-                    listener.container.addView(listener.getView(i, null))
+                    listener.container.addView(listener.getView(i, null), i)
             } else {
                 sender.removeOnListChangedCallback(this)
             }

@@ -51,4 +51,19 @@ public class KeyPair {
     public Key getPublicKey() {
         return publicKey;
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof KeyPair))
+            return false;
+        final KeyPair other = (KeyPair) obj;
+        return privateKey.equals(other.privateKey) && publicKey.equals(other.publicKey);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * privateKey.hashCode() + publicKey.hashCode();
+    }
 }

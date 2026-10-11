@@ -5,6 +5,7 @@
 package com.wireguard.android.configStore
 
 import android.content.Context
+import android.util.AtomicFile
 import android.util.Log
 import com.wireguard.android.R
 import com.wireguard.config.BadConfigException
@@ -26,7 +27,7 @@ class FileConfigStore(private val context: Context) : ConfigStore {
         val file = fileFor(name)
         if (!file.createNewFile())
             throw IOException(context.getString(R.string.config_file_exists_error, file.name))
-        FileOutputStream(file, false).use { it.write(config.toWgQuickString().toByteArray(StandardCharsets.UTF_8)) }
+        writeAtomically(file, config.toWgQuickString())
         return config
     }
 
@@ -47,6 +48,25 @@ class FileConfigStore(private val context: Context) : ConfigStore {
 
     private fun fileFor(name: String): File {
         return File(context.filesDir, "$name.conf")
+    }
+
+    /**
+     * Writes [contents] to [file] atomically via a temporary file followed by a rename, so that a
+     * crash or error mid-write can never leave the existing configuration truncated or empty.
+     */
+    @Throws(IOException::class)
+    private fun writeAtomically(file: File, contents: String) {
+        val atomicFile = AtomicFile(file)
+        var stream: FileOutputStream? = null
+        try {
+            stream = atomicFile.startWrite()
+            stream.write(contents.toByteArray(StandardCharsets.UTF_8))
+            atomicFile.finishWrite(stream)
+        } catch (e: IOException) {
+            if (stream != null)
+                atomicFile.failWrite(stream)
+            throw e
+        }
     }
 
     @Throws(BadConfigException::class, IOException::class)
@@ -72,7 +92,7 @@ class FileConfigStore(private val context: Context) : ConfigStore {
         val file = fileFor(name)
         if (!file.isFile)
             throw FileNotFoundException(context.getString(R.string.config_not_found_error, file.name))
-        FileOutputStream(file, false).use { stream -> stream.write(config.toWgQuickString().toByteArray(StandardCharsets.UTF_8)) }
+        writeAtomically(file, config.toWgQuickString())
         return config
     }
 

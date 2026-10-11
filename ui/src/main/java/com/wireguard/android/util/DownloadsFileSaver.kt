@@ -5,6 +5,7 @@
 package com.wireguard.android.util
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
@@ -37,41 +38,39 @@ class DownloadsFileSaver(private val context: ComponentActivity) {
         }
     }
 
-    suspend fun save(name: String, mimeType: String?, overwriteExisting: Boolean) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    /**
+     * Creates a new [DownloadsFile] for writing. The data is first written to a temporary
+     * location and only replaces any previously-existing file once [DownloadsFile.commit] is
+     * called, so a failed write never destroys the previous version (F11).
+     */
+    suspend fun save(name: String, mimeType: String?, overwriteExisting: Boolean): DownloadsFile? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         withContext(Dispatchers.IO) {
             val contentResolver = context.contentResolver
-            if (overwriteExisting)
-                contentResolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, String.format("%s = ?", MediaColumns.DISPLAY_NAME), arrayOf(name))
+
+            // Remember any existing file so it can be replaced only after a successful write.
+            var oldUri: Uri? = null
+            if (overwriteExisting) {
+                contentResolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaColumns._ID),
+                    String.format("%s = ?", MediaColumns.DISPLAY_NAME),
+                    arrayOf(name), null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        oldUri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+                    }
+                }
+            }
+
             val contentValues = ContentValues()
-            contentValues.put(MediaColumns.DISPLAY_NAME, name)
+            contentValues.put(MediaColumns.DISPLAY_NAME, "$name.part")
             contentValues.put(MediaColumns.MIME_TYPE, mimeType)
             val contentUri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                 ?: throw IOException(context.getString(R.string.create_downloads_file_error))
             val contentStream = contentResolver.openOutputStream(contentUri)
                 ?: throw IOException(context.getString(R.string.create_downloads_file_error))
-            @Suppress("DEPRECATION") var cursor = contentResolver.query(contentUri, arrayOf(MediaColumns.DATA), null, null, null)
-            var path: String? = null
-            if (cursor != null) {
-                try {
-                    if (cursor.moveToFirst())
-                        path = cursor.getString(0)
-                } finally {
-                    cursor.close()
-                }
-            }
-            if (path == null) {
-                path = "Download/"
-                cursor = contentResolver.query(contentUri, arrayOf(MediaColumns.DISPLAY_NAME), null, null, null)
-                if (cursor != null) {
-                    try {
-                        if (cursor.moveToFirst())
-                            path += cursor.getString(0)
-                    } finally {
-                        cursor.close()
-                    }
-                }
-            }
-            DownloadsFile(context, contentStream, path, contentUri)
+
+            DownloadsFile(contentResolver, contentStream, name, contentUri, oldUri, null, null)
         }
     } else {
         withContext(Dispatchers.Main.immediate) {
@@ -85,20 +84,51 @@ class DownloadsFileSaver(private val context: ComponentActivity) {
             }
             @Suppress("DEPRECATION") val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             withContext(Dispatchers.IO) {
-                val file = File(path, name)
                 if (!path.isDirectory && !path.mkdirs())
                     throw IOException(context.getString(R.string.create_output_dir_error))
-                DownloadsFile(context, FileOutputStream(file), file.absolutePath, null)
+                val finalFile = File(path, name)
+                val tmpFile = File(path, "$name.part")
+                DownloadsFile(context.contentResolver, FileOutputStream(tmpFile), name, null, null, finalFile, tmpFile)
             }
         }
     }
 
-    class DownloadsFile(private val context: Context, val outputStream: OutputStream, val fileName: String, private val uri: Uri?) {
+    /**
+     * A file in the Downloads directory that is being written. Callers must write to
+     * [outputStream], then call [commit] on success or [delete] on failure.
+     */
+    class DownloadsFile(
+        private val contentResolver: android.content.ContentResolver,
+        val outputStream: OutputStream,
+        val fileName: String,
+        private val newUri: Uri?,
+        private val oldUri: Uri?,
+        private val oldFile: File?,
+        private val tmpFile: File?,
+    ) {
+        /** Removes the partially-written temporary file after a failed write. */
         suspend fun delete() = withContext(Dispatchers.IO) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                context.contentResolver.delete(uri!!, null, null)
+                newUri?.let { contentResolver.delete(it, null, null) }
             else
-                File(fileName).delete()
+                tmpFile?.delete()
+        }
+
+        /** Replaces any previous version of the file with the newly-written content. */
+        suspend fun commit() = withContext(Dispatchers.IO) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Remove the old version, then promote the temporary name to the final name.
+                oldUri?.let { contentResolver.delete(it, null, null) }
+                newUri?.let {
+                    val values = ContentValues().apply { put(MediaColumns.DISPLAY_NAME, fileName) }
+                    contentResolver.update(it, values, null, null)
+                }
+            } else {
+                val target = oldFile ?: tmpFile?.parentFile?.let { File(it, fileName) }
+                if (target != null && target.exists())
+                    target.delete()
+                tmpFile?.renameTo(target)
+            }
         }
     }
 }

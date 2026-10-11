@@ -84,6 +84,11 @@ class LogViewerActivity : AppCompatActivity() {
 
     private var lastUri: Uri? = null
 
+    @Volatile
+    private var streamingProcess: Process? = null
+
+    private val rawLogLock = Any()
+
     private fun revokeLastUri() {
         lastUri?.let {
             LOGS.remove(it.pathSegments.lastOrNull())
@@ -130,6 +135,13 @@ class LogViewerActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        // Unblock the blocking readLine() in the streaming coroutine by terminating the process (R03).
+        streamingProcess?.destroy()
+        streamingProcess = null
+        super.onDestroy()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.log_viewer, menu)
         saveButton = menu.findItem(R.id.save_log)
@@ -158,8 +170,13 @@ class LogViewerActivity : AppCompatActivity() {
     private suspend fun rawLogBytes(): ByteArray {
         val builder = StringBuilder()
         withContext(Dispatchers.IO) {
-            for (i in 0 until rawLogLines.size()) {
-                builder.append(rawLogLines[i])
+            // Snapshot under the same lock used by the streaming writer so the two coroutines
+            // never observe the circular buffer mid-mutation (R04).
+            val snapshot = synchronized(rawLogLock) {
+                (0 until rawLogLines.size()).map { rawLogLines[it] }
+            }
+            for (line in snapshot) {
+                builder.append(line)
                 builder.append('\n')
             }
         }
@@ -171,19 +188,23 @@ class LogViewerActivity : AppCompatActivity() {
         var outputFile: DownloadsFileSaver.DownloadsFile? = null
         withContext(Dispatchers.IO) {
             try {
-                outputFile = downloadsFileSaver.save("wireguard-log.txt", "text/plain", true)
-                outputFile?.outputStream?.write(rawLogBytes())
+                val file = downloadsFileSaver.save("wireguard-log.txt", "text/plain", true)
+                    ?: throw IOException(getString(R.string.create_downloads_file_error))
+                outputFile = file
+                // Close the stream so the file descriptor is released (F21).
+                file.outputStream.use { it.write(rawLogBytes()) }
+                // Replace any previous log file only after a successful write (F11).
+                file.commit()
             } catch (e: Throwable) {
                 outputFile?.delete()
                 exception = e
             }
         }
         saveButton?.isEnabled = true
-        if (outputFile == null)
-            return
+        val file = outputFile
         Snackbar.make(
             findViewById(android.R.id.content),
-            if (exception == null) getString(R.string.log_export_success, outputFile.fileName)
+            if (exception == null) getString(R.string.log_export_success, file!!.fileName)
             else getString(R.string.log_export_error, ErrorMessages[exception]),
             if (exception == null) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
         )
@@ -202,6 +223,7 @@ class LogViewerActivity : AppCompatActivity() {
                 Log.e(TAG, Log.getStackTraceString(e))
                 return@withContext
             }
+            streamingProcess = process
             val stdout = BufferedReader(InputStreamReader(process!!.inputStream, StandardCharsets.UTF_8))
 
             var posStart = 0
@@ -214,9 +236,11 @@ class LogViewerActivity : AppCompatActivity() {
 
             while (true) {
                 val line = stdout.readLine() ?: break
-                if (rawLogLines.size() >= MAX_LINES)
-                    rawLogLines.popFirst()
-                rawLogLines.addLast(line)
+                synchronized(rawLogLock) {
+                    if (rawLogLines.size() >= MAX_LINES)
+                        rawLogLines.popFirst()
+                    rawLogLines.addLast(line)
+                }
                 val logLine = parseLine(line)
                 if (logLine != null) {
                     bufferedLogLines.add(logLine)
@@ -261,6 +285,7 @@ class LogViewerActivity : AppCompatActivity() {
                 }
             }
         } finally {
+            streamingProcess = null
             process?.destroy()
         }
     }

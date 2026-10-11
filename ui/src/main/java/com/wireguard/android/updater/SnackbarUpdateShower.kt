@@ -53,7 +53,7 @@ class SnackbarUpdateShower(private val fragment: Fragment) {
                         (snackbar == actionSnackbar && !showingAction) || (snackbar == statusSnackbar && !showingStatus)
                     )
                         return
-                    fragment.lifecycleScope.launch {
+                    fragment.viewLifecycleOwner.lifecycleScope.launch {
                         delay(5.seconds)
                         snackbar?.show()
                     }
@@ -168,6 +168,6 @@ class SnackbarUpdateShower(private val fragment: Fragment) {
                         }.show()
                 }
             }
-        }.launchIn(fragment.lifecycleScope)
+        }.launchIn(fragment.viewLifecycleOwner.lifecycleScope)
     }
 }

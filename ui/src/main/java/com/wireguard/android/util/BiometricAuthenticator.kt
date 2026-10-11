@@ -46,8 +46,11 @@ object BiometricAuthenticator {
                             Result.Cancelled
                         }
 
-                        BiometricPrompt.ERROR_HW_NOT_PRESENT, BiometricPrompt.ERROR_HW_UNAVAILABLE,
-                        BiometricPrompt.ERROR_NO_BIOMETRICS, BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL -> {
+                        // Only permanent absence of protection may be treated as "no protection
+                        // configured". A temporary hardware error (ERROR_HW_UNAVAILABLE) must fall
+                        // through to Failure so the action is blocked rather than silently allowed.
+                        BiometricPrompt.ERROR_HW_NOT_PRESENT, BiometricPrompt.ERROR_NO_BIOMETRICS,
+                        BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL -> {
                             Result.HardwareUnavailableOrDisabled
                         }
 
@@ -71,10 +74,22 @@ object BiometricAuthenticator {
             .setTitle(fragment.getString(dialogTitleRes))
             .setAllowedAuthenticators(allowedAuthenticators)
             .build()
-        if (BiometricManager.from(fragment.requireContext()).canAuthenticate(allowedAuthenticators) == BiometricManager.BIOMETRIC_SUCCESS) {
-            biometricPrompt.authenticate(promptInfo)
-        } else {
-            callback(Result.HardwareUnavailableOrDisabled)
+        val status = BiometricManager.from(fragment.requireContext()).canAuthenticate(allowedAuthenticators)
+        when (status) {
+            BiometricManager.BIOMETRIC_SUCCESS -> {
+                biometricPrompt.authenticate(promptInfo)
+            }
+
+            // Only permanent absence of protection is allowed through without authentication.
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE, BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                callback(Result.HardwareUnavailableOrDisabled)
+            }
+
+            else -> {
+                // Includes BIOMETRIC_ERROR_HW_UNAVAILABLE: a temporary error must block the action
+                // instead of being treated as "no protection configured" (R01).
+                callback(Result.Failure(status, fragment.getString(R.string.biometric_auth_error)))
+            }
         }
     }
 }

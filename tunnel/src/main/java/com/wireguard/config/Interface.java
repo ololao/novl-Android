@@ -200,6 +200,7 @@ public final class Interface {
         int hash = 1;
         hash = 31 * hash + addresses.hashCode();
         hash = 31 * hash + dnsServers.hashCode();
+        hash = 31 * hash + dnsSearchDomains.hashCode();
         hash = 31 * hash + excludedApplications.hashCode();
         hash = 31 * hash + includedApplications.hashCode();
         hash = 31 * hash + keyPair.hashCode();
@@ -233,10 +234,10 @@ public final class Interface {
         final StringBuilder sb = new StringBuilder();
         if (!addresses.isEmpty())
             sb.append("Address = ").append(Attribute.join(addresses)).append('\n');
-        if (!dnsServers.isEmpty()) {
-            final List<String> dnsServerStrings = dnsServers.stream().map(InetAddress::getHostAddress).collect(Collectors.toList());
-            dnsServerStrings.addAll(dnsSearchDomains);
-            sb.append("DNS = ").append(Attribute.join(dnsServerStrings)).append('\n');
+        if (!dnsServers.isEmpty() || !dnsSearchDomains.isEmpty()) {
+            final List<String> dnsStrings = dnsServers.stream().map(InetAddress::getHostAddress).collect(Collectors.toList());
+            dnsStrings.addAll(dnsSearchDomains);
+            sb.append("DNS = ").append(Attribute.join(dnsStrings)).append('\n');
         }
         if (!excludedApplications.isEmpty())
             sb.append("ExcludedApplications = ").append(Attribute.join(excludedApplications)).append('\n');

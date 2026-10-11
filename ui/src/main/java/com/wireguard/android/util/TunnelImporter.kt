@@ -20,9 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
 import java.io.ByteArrayInputStream
-import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -57,7 +55,6 @@ object TunnelImporter {
 
             if (isZip) {
                 ZipInputStream(contentResolver.openInputStream(uri)).use { zip ->
-                    val reader = BufferedReader(InputStreamReader(zip, StandardCharsets.UTF_8))
                     var entry: ZipEntry?
                     while (true) {
                         entry = zip.nextEntry ?: break
@@ -75,7 +72,9 @@ object TunnelImporter {
                             continue
                         }
                         try {
-                            Config.parse(reader)
+                            // Read each entry in full so a parse failure in one entry cannot leak
+                            // buffered bytes into the next (F10).
+                            Config.parse(ByteArrayInputStream(zip.readBytes()))
                         } catch (e: Throwable) {
                             throwables.add(e)
                             null
