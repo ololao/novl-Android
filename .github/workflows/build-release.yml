@@ -1,0 +1,63 @@
+name: Build NOVL Android APK & Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew :ui:assembleRelease
+
+      - name: Prepare APK Artifact
+        run: |
+          mkdir -p build-artifacts
+          # Копируем созданный APK с версионированным именем
+          cp ui/build/outputs/apk/release/ui-release-unsigned.apk build-artifacts/novl-v0.1.0.apk
+          sha256sum build-artifacts/novl-v0.1.0.apk > build-artifacts/novl-v0.1.0.apk.sha256
+          echo "Built APK SHA256:"
+          cat build-artifacts/novl-v0.1.0.apk.sha256
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: novl-android-apk
+          path: build-artifacts/novl-v0.1.0.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build-artifacts/novl-v0.1.0.apk
+            build-artifacts/novl-v0.1.0.apk.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
