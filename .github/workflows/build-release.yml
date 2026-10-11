@@ -32,14 +32,22 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
       - name: Build Release APK
         run: ./gradlew :ui:assembleRelease
 
       - name: Prepare APK Artifact
         run: |
           mkdir -p build-artifacts
-          # Копируем созданный APK с версионированным именем
-          cp ui/build/outputs/apk/release/ui-release-unsigned.apk build-artifacts/novl-v0.1.0.apk
+          APK_PATH=$(find ui/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK file found in ui/build/outputs/apk/release"
+            exit 1
+          fi
+          echo "Found APK at: $APK_PATH"
+          cp "$APK_PATH" build-artifacts/novl-v0.1.0.apk
           sha256sum build-artifacts/novl-v0.1.0.apk > build-artifacts/novl-v0.1.0.apk.sha256
           echo "Built APK SHA256:"
           cat build-artifacts/novl-v0.1.0.apk.sha256
