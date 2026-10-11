@@ -23,3 +23,4 @@ maint/
 *.png
 *.conf
 !tunnel/src/test/resources/*.conf
+release-new.keystore
