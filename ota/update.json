@@ -1,7 +1,7 @@
 {
-  "version_code": 1,
-  "version_name": "0.1.0",
-  "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.1/novl-v0.1.0.apk",
-  "sha256": "d7bffdf8bab3394341004423c51771876694b5523327e5548899ec741220eb48",
+  "version_code": 2,
+  "version_name": "0.1.1",
+  "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.1.1/novl-v0.1.1.apk",
+  "sha256": "79cb8428fdd4e1bf1befa8653bb1a7970dbb7c49e7e1c79f897d951088bb1b5e",
   "changelog": "Начальный релиз NOVL Android v0.1.0: L3 TUN tun2proxy, TLS-Chameleon, Split Handshake anti-DPI, UDP-over-TCP."
 }
