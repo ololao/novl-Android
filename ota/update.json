@@ -3,5 +3,5 @@
   "version_name": "0.1.1",
   "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.1.1/novl-v0.1.1.apk",
   "sha256": "79cb8428fdd4e1bf1befa8653bb1a7970dbb7c49e7e1c79f897d951088bb1b5e",
-  "changelog": "v0.1.2: исправлено подключение в Wi-Fi и мобильных сетях (движок использовал preshared key в неверной кодировке)."
+  "changelog": "v0.2.0: протокол v2 — прямая секретность (PFS), аутентификация сервера, TLS-маскировка трафика, рандомизированный anti-DPI. Сервер должен быть обновлён."
 }
