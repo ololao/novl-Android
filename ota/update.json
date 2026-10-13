@@ -2,6 +2,6 @@
   "version_code": 4,
   "version_name": "0.2.0",
   "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.2.0/novl-v0.2.0.apk",
-  "sha256": "",
+  "sha256": "7eb1109d5811609cd64954d3b9f3b73b278865a77095fea02019c7be1c4c142c",
   "changelog": "v0.2.0: протокол v2 — прямая секретность (PFS), аутентификация сервера, TLS-маскировка трафика, рандомизированный anti-DPI. Сервер должен быть обновлён."
 }
