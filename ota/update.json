@@ -1,7 +1,7 @@
 {
-  "version_code": 2,
-  "version_name": "0.1.1",
-  "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.1.1/novl-v0.1.1.apk",
-  "sha256": "79cb8428fdd4e1bf1befa8653bb1a7970dbb7c49e7e1c79f897d951088bb1b5e",
+  "version_code": 3,
+  "version_name": "0.1.2",
+  "apk_url": "https://github.com/ololao/novl-Android/releases/download/0.1.2/novl-v0.1.2.apk",
+  "sha256": "ae2569c87c590e3a1da52444ad005cce163798b0b286518bc596f80ec4c38a3c",
   "changelog": "v0.1.2: исправлено подключение в Wi-Fi и мобильных сетях (движок использовал preshared key в неверной кодировке)."
 }
